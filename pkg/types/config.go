@@ -8,6 +8,7 @@ type Config interface {
 	GetFile() FileConfig
 	GetWatcher() WatcherConfig
 	GetLog() LogConfig
+	GetNamespace() NamespaceConfig
 	Validate() error
 }
 
@@ -46,10 +47,11 @@ type LogConfig struct {
 
 // AppConfig は具体的な設定実装です。
 type AppConfig struct {
-	Port    PortConfig    `yaml:"port" json:"port"`
-	File    FileConfig    `yaml:"file" json:"file"`
-	Watcher WatcherConfig `yaml:"watcher" json:"watcher"`
-	Log     LogConfig     `yaml:"log" json:"log"`
+	Port      PortConfig      `yaml:"port" json:"port"`
+	File      FileConfig      `yaml:"file" json:"file"`
+	Watcher   WatcherConfig   `yaml:"watcher" json:"watcher"`
+	Log       LogConfig       `yaml:"log" json:"log"`
+	Namespace NamespaceConfig `yaml:"namespace" json:"namespace"`
 }
 
 // GetPort はポート設定を返します。
@@ -72,8 +74,18 @@ func (c *AppConfig) GetLog() LogConfig {
 	return c.Log
 }
 
+// GetNamespace は namespace 設定を返します。
+func (c *AppConfig) GetNamespace() NamespaceConfig {
+	return c.Namespace
+}
+
 // Validate は設定の妥当性を検証します。
 func (c *AppConfig) Validate() error {
-	// TODO: 設定のバリデーションロジックを実装
+	// namespace が設定されている場合はバリデーション
+	if !c.Namespace.IsEmpty() {
+		if err := c.Namespace.Validate(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
