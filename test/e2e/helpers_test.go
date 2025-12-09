@@ -38,7 +38,7 @@ func createTempDir(t *testing.T) string {
 	tmpDir, err := os.MkdirTemp("", "gopose-e2e-*")
 	require.NoError(t, err, "failed to create temp dir")
 	t.Cleanup(func() {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 	})
 	return tmpDir
 }
