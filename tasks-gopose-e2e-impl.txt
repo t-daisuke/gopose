@@ -1,0 +1,604 @@
+# gopose E2E テスト基盤 実装タスク
+# =====================================
+#
+# このファイルは gopose の namespace 機能 E2E テストを実装するための
+# 詳細なタスクリストです。TDD（テスト駆動開発）と Conventional Commits を
+# 厳守して実装してください。
+
+================================================================================
+## プロジェクト概要
+================================================================================
+
+### 既存構造
+- internal/           : 内部パッケージ（scanner, generator, parser, resolver 等）
+- pkg/types/          : 公開型定義（Config, Port, Compose, Conflicts 等）
+- cmd/                : CLI コマンド（root, up, clean, status）
+- Makefile            : test-e2e ターゲットは ./test/e2e/... を想定
+
+### 既存インターフェース
+- scanner.PortDetector        : システムポート検出
+- scanner.PortAllocator       : ポート割り当て
+- scanner.UnifiedConflictDetector : 統一的衝突検知
+- generator.OverrideGenerator : override.yml 生成
+- parser.ComposeParser        : Docker Compose ファイル解析
+
+### 設定構造（pkg/types/config.go）
+- AppConfig: Port, File, Watcher, Log の設定を保持
+- PortConfig: Range, Reserved, ExcludePrivileged
+- PortRange: Start, End
+
+================================================================================
+## Step 1: テスト基盤構築
+================================================================================
+
+### タスク 1.1: test/e2e/ ディレクトリ作成
+```bash
+mkdir -p test/e2e/testdata
+```
+
+### タスク 1.2: go.mod に testify 追加
+```bash
+go get github.com/stretchr/testify
+go mod tidy
+```
+検証コマンド:
+```bash
+grep "testify" go.mod && echo "OK"
+```
+
+### タスク 1.3: test/e2e/testdata/ にテスト用 docker-compose.yml 作成
+
+ファイル: test/e2e/testdata/basic-compose.yml
+```yaml
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+  api:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+```
+
+ファイル: test/e2e/testdata/conflict-compose.yml
+```yaml
+services:
+  web1:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+  web2:
+    image: nginx:alpine
+    ports:
+      - "8080:80"  # web1 と衝突
+```
+
+### タスク 1.4: test/e2e/helpers_test.go 作成
+- テスト用ヘルパー関数
+- 一時ディレクトリ作成/削除
+- Compose ファイル生成ヘルパー
+
+### コミット
+```bash
+git add test/e2e/ go.mod go.sum
+git commit -m "chore(test): setup e2e test infrastructure
+
+- Add test/e2e directory structure
+- Add testify dependency for assertions
+- Create basic test data compose files
+- Add test helper functions
+
+🤖 Generated with Claude Code
+"
+```
+
+検証コマンド:
+```bash
+go build ./...
+go test ./test/e2e/... -v  # 最初は空でもOK
+```
+
+================================================================================
+## Step 2: 基本 E2E テスト（既存機能）- TDD
+================================================================================
+
+### タスク 2.1: test/e2e/basic_test.go 作成（Red フェーズ）
+
+```go
+// test/e2e/basic_test.go
+package e2e
+
+import (
+    "context"
+    "testing"
+
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+func TestBasicPortConflictDetection(t *testing.T) {
+    // テスト: ポート衝突検知が正しく動作すること
+    // 1. テスト用 compose ファイルを読み込み
+    // 2. PortDetector で使用中ポートを検出
+    // 3. UnifiedConflictDetector で衝突を検出
+    // 4. 衝突情報が正しく返されることを確認
+}
+
+func TestOverrideYmlGeneration(t *testing.T) {
+    // テスト: override.yml が正しく生成されること
+    // 1. 衝突のある compose ファイルを用意
+    // 2. 衝突解決を実行
+    // 3. override.yml が生成されることを確認
+    // 4. override.yml の内容を検証
+}
+
+func TestResolvedPortValidity(t *testing.T) {
+    // テスト: 解決後のポートが妥当であること
+    // 1. ポート範囲 8000-9999 を指定
+    // 2. 衝突解決を実行
+    // 3. 解決されたポートが範囲内であることを確認
+    // 4. 解決されたポートが重複していないことを確認
+}
+```
+
+検証コマンド（Red: テスト失敗を確認）:
+```bash
+go test ./test/e2e/... -v -run TestBasic
+# 期待: テストが失敗またはスキップ
+```
+
+### タスク 2.2: テスト実装（Green フェーズ）
+- 各テストケースの実装を完成させる
+- 既存の internal パッケージを使用
+
+検証コマンド（Green: テスト成功を確認）:
+```bash
+go test ./test/e2e/... -v -run TestBasic
+# 期待: すべてのテストが成功
+```
+
+### タスク 2.3: リファクタリング（Refactor フェーズ）
+- 重複コードをヘルパー関数に抽出
+- テストの可読性向上
+
+### コミット
+```bash
+git add test/e2e/basic_test.go
+git commit -m "test(e2e): add basic port conflict resolution tests
+
+- TestBasicPortConflictDetection: ポート衝突検知テスト
+- TestOverrideYmlGeneration: override.yml 生成テスト
+- TestResolvedPortValidity: 解決後ポート妥当性テスト
+
+🤖 Generated with Claude Code
+"
+```
+
+================================================================================
+## Step 3: Namespace 型定義 - TDD
+================================================================================
+
+### タスク 3.1: test/e2e/namespace_test.go 作成（Red フェーズ）
+
+```go
+// test/e2e/namespace_test.go
+package e2e
+
+import (
+    "testing"
+
+    "github.com/harakeishi/gopose/pkg/types"
+    "github.com/stretchr/testify/assert"
+)
+
+func TestNamespaceConfigStructure(t *testing.T) {
+    // テスト: NamespaceConfig 構造体が正しく定義されていること
+    ns := types.NamespaceConfig{
+        Name:       "dev",
+        PortOffset: 1000,
+        PortRange: types.PortRange{
+            Start: 8000,
+            End:   8999,
+        },
+    }
+
+    assert.Equal(t, "dev", ns.Name)
+    assert.Equal(t, 1000, ns.PortOffset)
+    assert.Equal(t, 8000, ns.PortRange.Start)
+    assert.Equal(t, 8999, ns.PortRange.End)
+}
+
+func TestNamespaceConfigValidation(t *testing.T) {
+    // テスト: NamespaceConfig のバリデーションが機能すること
+    tests := []struct {
+        name    string
+        config  types.NamespaceConfig
+        wantErr bool
+    }{
+        {
+            name: "valid config",
+            config: types.NamespaceConfig{
+                Name:       "dev",
+                PortOffset: 1000,
+                PortRange:  types.PortRange{Start: 8000, End: 8999},
+            },
+            wantErr: false,
+        },
+        {
+            name: "empty name",
+            config: types.NamespaceConfig{
+                Name:       "",
+                PortOffset: 1000,
+                PortRange:  types.PortRange{Start: 8000, End: 8999},
+            },
+            wantErr: true,
+        },
+        {
+            name: "invalid port range",
+            config: types.NamespaceConfig{
+                Name:       "dev",
+                PortOffset: 1000,
+                PortRange:  types.PortRange{Start: 9000, End: 8000}, // Start > End
+            },
+            wantErr: true,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := tt.config.Validate()
+            if tt.wantErr {
+                assert.Error(t, err)
+            } else {
+                assert.NoError(t, err)
+            }
+        })
+    }
+}
+```
+
+検証コマンド（Red: コンパイルエラーを確認）:
+```bash
+go test ./test/e2e/... -v -run TestNamespaceConfig
+# 期待: types.NamespaceConfig が見つからないエラー
+```
+
+### コミット（テスト）
+```bash
+git add test/e2e/namespace_test.go
+git commit -m "test(e2e): add namespace config tests (red)
+
+- TestNamespaceConfigStructure: 構造体定義テスト
+- TestNamespaceConfigValidation: バリデーションテスト
+- テストは現時点で失敗する（TDD Red フェーズ）
+
+🤖 Generated with Claude Code
+"
+```
+
+### タスク 3.2: pkg/types/namespace.go 作成（Green フェーズ）
+
+```go
+// pkg/types/namespace.go
+package types
+
+import "fmt"
+
+// NamespaceConfig は namespace の設定を表します。
+// namespace は複数の開発者/環境間でポート範囲を分離するための機能です。
+type NamespaceConfig struct {
+    // Name は namespace の識別名です
+    Name string `yaml:"name" json:"name"`
+
+    // PortOffset は namespace 間のポート間隔です
+    // 例: PortOffset=1000 の場合、namespace "dev" は 8000-8999、
+    //     namespace "staging" は 9000-9999 を使用
+    PortOffset int `yaml:"port_offset" json:"port_offset"`
+
+    // PortRange は この namespace で使用するポート範囲です
+    PortRange PortRange `yaml:"port_range" json:"port_range"`
+}
+
+// Validate は NamespaceConfig の妥当性を検証します。
+func (c *NamespaceConfig) Validate() error {
+    if c.Name == "" {
+        return fmt.Errorf("namespace name is required")
+    }
+
+    if c.PortRange.Start > c.PortRange.End {
+        return fmt.Errorf("invalid port range: start (%d) > end (%d)",
+            c.PortRange.Start, c.PortRange.End)
+    }
+
+    if c.PortRange.Start < 1 || c.PortRange.End > 65535 {
+        return fmt.Errorf("port range must be between 1 and 65535")
+    }
+
+    return nil
+}
+
+// Contains はポートが namespace の範囲内かどうかを確認します。
+func (c *NamespaceConfig) Contains(port int) bool {
+    return port >= c.PortRange.Start && port <= c.PortRange.End
+}
+```
+
+検証コマンド（Green: テスト成功を確認）:
+```bash
+go test ./test/e2e/... -v -run TestNamespaceConfig
+# 期待: すべてのテストが成功
+```
+
+### コミット（実装）
+```bash
+git add pkg/types/namespace.go
+git commit -m "feat(types): add NamespaceConfig struct
+
+- NamespaceConfig: namespace 設定の構造体
+- Name: namespace 識別名
+- PortOffset: namespace 間のポート間隔
+- PortRange: namespace で使用するポート範囲
+- Validate(): 設定の妥当性検証
+- Contains(): ポートが範囲内か確認
+
+🤖 Generated with Claude Code
+"
+```
+
+================================================================================
+## Step 4: Namespace E2E テスト（TDD）
+================================================================================
+
+### タスク 4.1: TestNamespacePortIsolation（Red フェーズ）
+
+```go
+// test/e2e/namespace_isolation_test.go
+package e2e
+
+func TestNamespacePortIsolation(t *testing.T) {
+    // テスト: 異なる namespace でポート範囲が分離されること
+    //
+    // シナリオ:
+    // - namespace "dev" は 8000-8999 を使用
+    // - namespace "staging" は 9000-9999 を使用
+    // - 同じサービス名でも異なるポートが割り当てられること
+
+    devNamespace := types.NamespaceConfig{
+        Name:       "dev",
+        PortOffset: 0,
+        PortRange:  types.PortRange{Start: 8000, End: 8999},
+    }
+
+    stagingNamespace := types.NamespaceConfig{
+        Name:       "staging",
+        PortOffset: 1000,
+        PortRange:  types.PortRange{Start: 9000, End: 9999},
+    }
+
+    // dev namespace でポート割り当て
+    devPort := allocatePortForNamespace(t, devNamespace, "web")
+    assert.True(t, devNamespace.Contains(devPort),
+        "dev port should be in dev namespace range")
+
+    // staging namespace でポート割り当て
+    stagingPort := allocatePortForNamespace(t, stagingNamespace, "web")
+    assert.True(t, stagingNamespace.Contains(stagingPort),
+        "staging port should be in staging namespace range")
+
+    // ポートが異なることを確認
+    assert.NotEqual(t, devPort, stagingPort,
+        "dev and staging should have different ports")
+}
+```
+
+### タスク 4.2: TestNamespaceConfigLoading（Red フェーズ）
+
+```go
+func TestNamespaceConfigLoading(t *testing.T) {
+    // テスト: .gopose.yaml から namespace 設定が読み込めること
+    //
+    // .gopose.yaml の構造例:
+    // namespace:
+    //   name: dev
+    //   port_offset: 1000
+    //   port_range:
+    //     start: 8000
+    //     end: 8999
+
+    // 一時ディレクトリに .gopose.yaml を作成
+    tmpDir := t.TempDir()
+    configPath := filepath.Join(tmpDir, ".gopose.yaml")
+
+    configContent := `
+namespace:
+  name: dev
+  port_offset: 1000
+  port_range:
+    start: 8000
+    end: 8999
+`
+    require.NoError(t, os.WriteFile(configPath, []byte(configContent), 0644))
+
+    // 設定読み込み
+    cfg, err := config.LoadFromFile(configPath)
+    require.NoError(t, err)
+
+    // namespace 設定の検証
+    assert.Equal(t, "dev", cfg.Namespace.Name)
+    assert.Equal(t, 1000, cfg.Namespace.PortOffset)
+    assert.Equal(t, 8000, cfg.Namespace.PortRange.Start)
+    assert.Equal(t, 8999, cfg.Namespace.PortRange.End)
+}
+```
+
+### タスク 4.3: TestMultipleNamespaceConflictResolution（Red フェーズ）
+
+```go
+func TestMultipleNamespaceConflictResolution(t *testing.T) {
+    // テスト: 複数 namespace 間での衝突解決
+    //
+    // シナリオ:
+    // - 2つの namespace が同じホストで動作
+    // - それぞれが同じポートを要求
+    // - 衝突が検出され、各 namespace の範囲内で解決されること
+
+    ctx := context.Background()
+
+    // namespace 設定
+    namespaces := []types.NamespaceConfig{
+        {Name: "dev", PortRange: types.PortRange{Start: 8000, End: 8999}},
+        {Name: "staging", PortRange: types.PortRange{Start: 9000, End: 9999}},
+    }
+
+    // 両方の compose ファイルで 8080 を要求
+    composeConfig := createTestComposeConfig(t, map[string]int{
+        "web": 8080,
+        "api": 3000,
+    })
+
+    for _, ns := range namespaces {
+        t.Run(ns.Name, func(t *testing.T) {
+            // 衝突検出
+            detector := createNamespaceAwareDetector(ns)
+            conflicts, err := detector.DetectConflicts(ctx, composeConfig, ns.Name)
+            require.NoError(t, err)
+
+            // 衝突解決
+            resolver := createNamespaceAwareResolver(ns)
+            err = resolver.ResolveConflicts(ctx, conflicts)
+            require.NoError(t, err)
+
+            // 解決されたポートが namespace 範囲内であることを確認
+            for _, conflict := range conflicts.PortConflicts {
+                if conflict.Resolution != nil {
+                    assert.True(t, ns.Contains(conflict.Resolution.ResolvedPort),
+                        "resolved port %d should be in namespace %s range",
+                        conflict.Resolution.ResolvedPort, ns.Name)
+                }
+            }
+        })
+    }
+}
+```
+
+### コミット（テスト）
+```bash
+git add test/e2e/namespace_isolation_test.go
+git commit -m "test(e2e): add namespace port isolation tests (red)
+
+- TestNamespacePortIsolation: ポート範囲分離テスト
+- TestNamespaceConfigLoading: 設定ファイル読み込みテスト
+- TestMultipleNamespaceConflictResolution: 複数 namespace 衝突解決テスト
+- テストは現時点で失敗する（TDD Red フェーズ）
+
+🤖 Generated with Claude Code
+"
+```
+
+### タスク 4.4: Namespace 機能の実装（Green フェーズ）
+
+#### 4.4.1 pkg/types/config.go に Namespace フィールド追加
+```go
+type AppConfig struct {
+    Port      PortConfig      `yaml:"port" json:"port"`
+    File      FileConfig      `yaml:"file" json:"file"`
+    Watcher   WatcherConfig   `yaml:"watcher" json:"watcher"`
+    Log       LogConfig       `yaml:"log" json:"log"`
+    Namespace NamespaceConfig `yaml:"namespace" json:"namespace"` // 追加
+}
+```
+
+#### 4.4.2 internal/scanner/namespace_allocator.go 作成
+- NamespaceAwarePortAllocator 実装
+- namespace 範囲内でポート割り当て
+
+#### 4.4.3 internal/config/loader.go に namespace 読み込み追加
+
+検証コマンド（Green: テスト成功を確認）:
+```bash
+go test ./test/e2e/... -v -run TestNamespace
+# 期待: すべてのテストが成功
+```
+
+### コミット（実装）
+```bash
+git add pkg/types/config.go internal/scanner/namespace_allocator.go internal/config/
+git commit -m "feat(scanner): implement namespace port isolation
+
+- Add Namespace field to AppConfig
+- Implement NamespaceAwarePortAllocator
+- Add namespace config loading support
+- Ports are now allocated within namespace range
+
+🤖 Generated with Claude Code
+"
+```
+
+================================================================================
+## 検証チェックリスト
+================================================================================
+
+各ステップ完了後、以下を必ず確認してください:
+
+### ビルド検証
+```bash
+go build ./...
+```
+
+### テスト検証
+```bash
+# ユニットテスト
+make test-unit
+
+# E2E テスト
+make test-e2e
+
+# 全テスト
+make test
+```
+
+### リンター検証（オプション）
+```bash
+make lint
+```
+
+### コミットメッセージ確認
+- Conventional Commits 形式になっているか
+- type(scope): description の形式か
+- 本文がある場合は空行で区切られているか
+
+================================================================================
+## 注意事項
+================================================================================
+
+1. **TDD サイクルを厳守**
+   - 必ずテストを先に書く
+   - テストが失敗することを確認（Red）
+   - 最小限の実装でテストを通す（Green）
+   - リファクタリング（Refactor）
+
+2. **コミットは細かく**
+   - 各 Red/Green フェーズでコミット
+   - 大きな変更は分割
+
+3. **既存コードへの影響を最小化**
+   - 既存の internal パッケージを活用
+   - 破壊的変更を避ける
+
+4. **テストデータは再現可能に**
+   - 一時ディレクトリを使用
+   - テスト後にクリーンアップ
+
+================================================================================
+## 完了条件
+================================================================================
+
+- [ ] test/e2e/ ディレクトリが存在
+- [ ] testify が go.mod に追加されている
+- [ ] test/e2e/basic_test.go が存在し、テストが通る
+- [ ] pkg/types/namespace.go が存在
+- [ ] NamespaceConfig 構造体が正しく動作
+- [ ] test/e2e/namespace_isolation_test.go が存在し、テストが通る
+- [ ] make test-e2e が成功する
+- [ ] すべてのコミットが Conventional Commits 形式
