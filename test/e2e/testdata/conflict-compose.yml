@@ -1,0 +1,9 @@
+services:
+  web1:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+  web2:
+    image: nginx:alpine
+    ports:
+      - "8080:80"  # web1 と衝突
